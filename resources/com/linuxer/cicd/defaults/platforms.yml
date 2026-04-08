@@ -1,0 +1,21 @@
+git:
+  type: bitbucket
+  url: https://bitbucket.org
+  credentialId: bitbucket-creds
+
+artifacts:
+  type: artifactory
+  url: https://mycompany.jfrog.io
+  credentialId: artifactory-creds
+
+issues:
+  type: jira
+  url: https://mycompany.atlassian.net
+  project: PROJ
+  credentialId: jira-creds
+
+wiki:
+  type: confluence
+  url: https://mycompany.atlassian.net/wiki
+  spaceKey: PROJ
+  credentialId: confluence-creds
