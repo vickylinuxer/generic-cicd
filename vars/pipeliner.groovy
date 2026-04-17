@@ -313,7 +313,7 @@ private void runIntegration(Map pipelineConfig, String configDir, String credent
     def manifestJobs = pipelineConfig.manifest?.jobs ?: 4
     def syncTimeout = pipelineConfig.manifest?.timeout ?: 30
     def subsystems = pipelineConfig.subsystems ?: []
-    def workspace = pipelineConfig.workspace ?: '/mnt/workspace'
+    def workspace = pipelineConfig.workspace ?: "/var/jenkins/workspace/integration"
 
     // Mirror config — derive manifest reference from mirrors if not set explicitly
     def mirrors = pipelineConfig.mirrors ?: [:]
@@ -408,7 +408,7 @@ private void runComponent(Map pipelineConfig, String configDir, String configNam
     def projectName = pipelineConfig.project?.name ?: configName
     def repoUrl = pipelineConfig.project?.repoUrl ?: error("'project.repoUrl' required in config")
     def repoBranch = pipelineConfig.project?.branch ?: 'main'
-    def workspace = pipelineConfig.workspace ?: '/mnt/workspace'
+    def workspace = pipelineConfig.workspace ?: "/var/jenkins/workspace/component"
     def buildScripts = pipelineConfig.buildScripts ?: [:]
     def componentAgent = pipelineConfig.environment?.agent ?: ''
     def componentTimeout = pipelineConfig.environment?.timeout ?: 120
@@ -565,7 +565,7 @@ private void resolveConfigPaths(Map config, String workspace) {
 
 private void dryRun(Map pipelineConfig, String configDir, String mode, String credentialsId) {
     echo "Mode: ${mode}"
-    echo "Workspace: ${pipelineConfig.workspace ?: '/mnt/workspace'}"
+    echo "Workspace: ${pipelineConfig.workspace ?: "/var/jenkins/workspace/${mode}"}"
 
     if (mode == 'integration') {
         echo "Manifest URL: ${pipelineConfig.manifest?.url ?: 'NOT SET'}"

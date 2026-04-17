@@ -146,7 +146,7 @@ project-config/
 
 ```yaml
 mode: integration
-workspace: /mnt/workspace/myproject
+workspace: /var/jenkins/workspace/integration
 cleanWorkspace: true
 
 manifest:

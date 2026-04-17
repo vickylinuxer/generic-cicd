@@ -224,7 +224,7 @@ pipeliner(
 <ac:structured-macro ac:name="code">
   <ac:parameter ac:name="language">yaml</ac:parameter>
   <ac:plain-text-body><![CDATA[mode: integration
-workspace: /mnt/workspace/myproject
+workspace: /var/jenkins/workspace/integration
 cleanWorkspace: true
 
 manifest:
