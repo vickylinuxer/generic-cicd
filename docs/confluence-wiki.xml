@@ -1,6 +1,6 @@
 <ac:structured-macro ac:name="info">
   <ac:rich-text-body>
-    <p>Jenkins shared library for embedded CI/CD pipelines. Supports Yocto, AOSP, and custom firmware builds with caching, Docker containers, artifact publishing, and multi-project integration.</p>
+    <p>Jenkins shared library for embedded CI/CD pipelines. Supports Yocto, AOSP, and custom firmware builds with Docker containers, artifact publishing, and multi-project integration.</p>
   </ac:rich-text-body>
 </ac:structured-macro>
 
@@ -28,7 +28,7 @@
     end
 
     subgraph Repos["Configuration Repos"]
-        PC["project-config<br/>──────────────<br/>integration.yml<br/>yocto-bsp.yml<br/>aosp-platform.yml<br/>custom-firmware.yml"]
+        PC["project-config<br/>──────────────<br/>integration.yml<br/>integration-nightly.yml<br/>integration-release.yml<br/>+ per-subsystem configs"]
         IM["integration-manifest<br/>──────────────<br/>default.xml<br/>├ build.xml<br/>├ projects.xml<br/>├ yocto.xml<br/>└ aosp.xml"]
     end
 
@@ -36,7 +36,6 @@
         subgraph WS["Workspace (repo sync)"]
             BS["build-scripts/<br/>├ yocto-build.sh<br/>├ aosp-build.sh<br/>└ custom-build.sh"]
             SRC["Sources<br/>├ yocto/poky<br/>├ yocto/meta-rpi<br/>├ subsystems/*<br/>└ aosp/"]
-            CACHE["Cache<br/>├ sstate<br/>├ downloads<br/>└ ccache"]
         end
         subgraph Docker["Docker Containers (parallel)"]
             YB["yocto-builder<br/>bitbake"]
@@ -95,7 +94,7 @@
     <tr>
       <td>Configuration</td>
       <td>project-config</td>
-      <td>YAML configs per subsystem (integration.yml, yocto-bsp.yml, aosp-platform.yml, custom-firmware.yml)</td>
+      <td>YAML configs per subsystem and build type (ci, nightly, release)</td>
     </tr>
     <tr>
       <td>Configuration</td>
@@ -138,7 +137,7 @@
   <li><strong><code>pipeliner()</code></strong> — Multi-project pipeline. Config lives in a separate config repo. Syncs sources from a manifest, then builds each subsystem in parallel.</li>
 </ul>
 
-<p>All build logic lives in external shell scripts (see <strong>build-scripts</strong> repo), referenced via YAML config. No embedded bash in Groovy — the pipeline only handles orchestration, caching, and artifact management.</p>
+<p>All build logic lives in external shell scripts (see <strong>build-scripts</strong> repo), referenced via YAML config. No embedded bash in Groovy — the pipeline only handles orchestration and artifact management. Cache management (sstate, downloads, ccache) is handled entirely by the build scripts.</p>
 
 <ac:structured-macro ac:name="code">
   <ac:parameter ac:name="title">Repo Structure (4 repos)</ac:parameter>
@@ -198,13 +197,15 @@ stages: [checkout, build, publish, notify]]]></ac:plain-text-body>
 
 <ac:structured-macro ac:name="code">
   <ac:parameter ac:name="language">groovy</ac:parameter>
-  <ac:plain-text-body><![CDATA[@Library('generic-cicd') _
-pipeliner(
-    config: 'integration',
-    configRepo: '<config-repo-url>',
-    credentials: 'git-creds',
-    agent: 'build-linux'
-)]]></ac:plain-text-body>
+  <ac:plain-text-body><![CDATA[// CI build
+@Library('generic-cicd') _
+pipeliner(config: 'integration', configRepo: '<config-repo-url>', credentials: 'git-creds', agent: 'build-linux')
+
+// Nightly build (triggered by cron)
+pipeliner(config: 'integration-nightly', configRepo: '<config-repo-url>', credentials: 'git-creds', agent: 'build-linux')
+
+// Release build (triggered manually)
+pipeliner(config: 'integration-release', configRepo: '<config-repo-url>', credentials: 'git-creds', agent: 'build-linux')]]></ac:plain-text-body>
 </ac:structured-macro>
 
 <h2>Config Repo Layout</h2>
@@ -213,10 +214,18 @@ pipeliner(
   <ac:parameter ac:name="language">text</ac:parameter>
   <ac:plain-text-body><![CDATA[project-config/
 └── projects/
-    ├── integration.yml        manifest, workspace, subsystem list
-    ├── custom-firmware.yml    subsystem build config
-    ├── yocto-bsp.yml          subsystem build config
-    └── aosp-platform.yml      subsystem build config]]></ac:plain-text-body>
+    ├── integration.yml                 # CI integration build
+    ├── integration-nightly.yml         # Nightly integration build
+    ├── integration-release.yml         # Release integration build
+    ├── custom-firmware.yml             # Subsystem config (ci)
+    ├── custom-firmware-nightly.yml     # Subsystem config (nightly)
+    ├── custom-firmware-release.yml     # Subsystem config (release)
+    ├── yocto-bsp.yml                   # Subsystem config (ci)
+    ├── yocto-bsp-nightly.yml           # Subsystem config (nightly)
+    ├── yocto-bsp-release.yml           # Subsystem config (release)
+    ├── aosp-platform.yml               # Subsystem config (ci)
+    ├── aosp-platform-nightly.yml       # Subsystem config (nightly)
+    └── aosp-platform-release.yml       # Subsystem config (release)]]></ac:plain-text-body>
 </ac:structured-macro>
 
 <h2>Integration Config</h2>
@@ -224,15 +233,32 @@ pipeliner(
 <ac:structured-macro ac:name="code">
   <ac:parameter ac:name="language">yaml</ac:parameter>
   <ac:plain-text-body><![CDATA[mode: integration
+
+project:
+  name: integration-build
+  type: custom
+  buildType: integration          # ci | nightly | release | integration
+
 workspace: /var/jenkins/workspace/integration
 cleanWorkspace: true
+
+environment:
+  agent: "audioi-linux"
+  timeout: 720
+  minDiskGB: 50
 
 manifest:
   url: <manifest-repo-url>
   branch: main
   reference: /mnt/workspace/mirrors/reference
 
-stages: [checkout, build, notify]
+artifacts:
+  type: artifactory
+  url: https://your-artifactory.jfrog.io
+  credentialId: artifactory-creds
+  defaultRepo: firmware-builds
+
+stages: [checkout, build, publish, notify]
 failFast: true
 
 subsystems:
@@ -240,6 +266,8 @@ subsystems:
   - yocto-bsp
   - aosp-platform]]></ac:plain-text-body>
 </ac:structured-macro>
+
+<p>Nightly and release variants (<code>integration-nightly.yml</code>, <code>integration-release.yml</code>) set <code>buildType: nightly</code> or <code>buildType: release</code> and reference their own subsystem configs (e.g., <code>custom-firmware-nightly</code>, <code>yocto-bsp-release</code>).</p>
 
 <h2>Component Mode with buildScripts</h2>
 
@@ -275,7 +303,7 @@ custom:
   buildType: ci
 
 environment:
-  agent: "build-yocto"
+  agent: "audioi-linux"
   timeout: 300
   docker:
     image: yocto-builder:latest
@@ -283,6 +311,12 @@ environment:
 
 yocto:
   buildScript: build-scripts/integration/yocto-build.sh
+
+artifacts:
+  type: artifactory
+  url: https://your-artifactory.jfrog.io
+  credentialId: artifactory-creds
+  defaultRepo: firmware-builds
 
 publish:
   artifacts:
@@ -346,13 +380,15 @@ stages: [checkout, build, publish, notify]]]></ac:plain-text-body>
 
 <h2>Build Types</h2>
 
+<p>Each build type has its own config file per subsystem (e.g., <code>yocto-bsp.yml</code>, <code>yocto-bsp-nightly.yml</code>, <code>yocto-bsp-release.yml</code>).</p>
+
 <table>
   <tbody>
-    <tr><th>Type</th><th>Trigger</th><th>Retention</th><th>Publish</th><th>Notify</th></tr>
-    <tr><td><code>ci</code></td><td>Webhook</td><td>20 builds</td><td>No</td><td>Failure only</td></tr>
-    <tr><td><code>nightly</code></td><td>Cron (2 AM)</td><td>14 builds</td><td>Yes</td><td>Failure + fixed</td></tr>
-    <tr><td><code>release</code></td><td>Manual</td><td>All</td><td>Yes</td><td>Always</td></tr>
-    <tr><td><code>integration</code></td><td>Cron (Sat 4 AM)</td><td>10 builds</td><td>Yes</td><td>Failure + fixed</td></tr>
+    <tr><th>Type</th><th>Trigger</th><th>Retention</th><th>Publish</th><th>Notify</th><th>Repo</th></tr>
+    <tr><td><code>ci</code></td><td>Webhook</td><td>20 builds</td><td>No</td><td>Failure only</td><td>test</td></tr>
+    <tr><td><code>nightly</code></td><td>Cron (2 AM)</td><td>14 builds</td><td>Yes</td><td>Failure + fixed</td><td>test</td></tr>
+    <tr><td><code>release</code></td><td>Manual</td><td>All</td><td>Yes</td><td>Always</td><td>firmware-releases</td></tr>
+    <tr><td><code>integration</code></td><td>Cron (Sat 4 AM)</td><td>10 builds</td><td>Yes</td><td>Failure + fixed</td><td>test</td></tr>
   </tbody>
 </table>
 
@@ -435,13 +471,13 @@ artifacts:
   <tbody>
     <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
     <tr><td><code>mode</code></td><td>string</td><td>No</td><td><code>integration</code> or <code>component</code> (default: <code>component</code>)</td></tr>
-    <tr><td><code>workspace</code></td><td>string</td><td>No</td><td>Workspace root path (default: agent workspace)</td></tr>
+    <tr><td><code>workspace</code></td><td>string</td><td>No</td><td>Build workspace (default: <code>/var/jenkins/workspace/&lt;mode&gt;</code>)</td></tr>
     <tr><td><code>cleanWorkspace</code></td><td>bool</td><td>No</td><td>Wipe workspace with <code>deleteDir()</code> before build</td></tr>
     <tr><td><code>failFast</code></td><td>bool</td><td>No</td><td>Stop all subsystems on first failure</td></tr>
     <tr><td><code>project.name</code></td><td>string</td><td>Yes</td><td>Project/subsystem name</td></tr>
     <tr><td><code>project.type</code></td><td>string</td><td>Yes</td><td><code>yocto</code>, <code>aosp</code>, or <code>custom</code></td></tr>
     <tr><td><code>project.repoUrl</code></td><td>string</td><td>Component</td><td>Git URL for component mode</td></tr>
-    <tr><td><code>project.buildType</code></td><td>string</td><td>No</td><td><code>ci</code>, <code>nightly</code>, <code>release</code> (default: <code>ci</code>)</td></tr>
+    <tr><td><code>project.buildType</code></td><td>string</td><td>No</td><td><code>ci</code>, <code>nightly</code>, <code>release</code>, <code>integration</code> (default: <code>ci</code>)</td></tr>
     <tr><td><code>buildScripts.url</code></td><td>string</td><td>No</td><td>Build scripts repo URL (component mode)</td></tr>
     <tr><td><code>buildScripts.branch</code></td><td>string</td><td>No</td><td>Branch to clone (default: <code>main</code>)</td></tr>
     <tr><td><code>manifest.url</code></td><td>string</td><td>Integration</td><td>Repo manifest URL</td></tr>
@@ -455,9 +491,13 @@ artifacts:
     <tr><td><code>environment.docker.credentialId</code></td><td>string</td><td>No</td><td>Docker registry credential</td></tr>
     <tr><td><code>environment.docker.args</code></td><td>string</td><td>No</td><td>Extra docker run args</td></tr>
     <tr><td><code>stages</code></td><td>list</td><td>No</td><td>Ordered stage list (default: <code>[build]</code>)</td></tr>
+    <tr><td><code>artifacts.type</code></td><td>string</td><td>No</td><td>Artifact backend (<code>artifactory</code>)</td></tr>
+    <tr><td><code>artifacts.url</code></td><td>string</td><td>No</td><td>Artifactory URL</td></tr>
+    <tr><td><code>artifacts.credentialId</code></td><td>string</td><td>No</td><td>Artifactory credential</td></tr>
+    <tr><td><code>artifacts.defaultRepo</code></td><td>string</td><td>No</td><td>Default Artifactory repo</td></tr>
+    <tr><td><code>publish.artifacts</code></td><td>list</td><td>No</td><td>Artifact patterns and target repos</td></tr>
     <tr><td><code>cleanup.afterBuild</code></td><td>bool</td><td>No</td><td>Clean intermediates on success</td></tr>
     <tr><td><code>cleanup.dirs</code></td><td>list</td><td>No</td><td>Directories to clean (<code>path</code>, <code>label</code>, <code>fullCleanOnly</code>)</td></tr>
-    <tr><td><code>publish.artifacts</code></td><td>list</td><td>No</td><td>Artifact patterns and target repos</td></tr>
     <tr><td><code>metrics.export</code></td><td>bool</td><td>No</td><td>POST metrics to endpoint</td></tr>
   </tbody>
 </table>
