@@ -1,0 +1,53 @@
+environment:
+  timeout: 60
+  retries: 0
+  agent: any
+  docker:
+    image: ""
+    args: ""
+    volumes: []
+
+buildTypes:
+  ci:
+    trigger: webhook
+    keepBuilds: 20
+    publishArtifacts: false
+    notifyOn:
+      - failure
+  nightly:
+    trigger: "H 2 * * *"
+    keepBuilds: 14
+    publishArtifacts: true
+    cleanWorkspace: true
+    notifyOn:
+      - failure
+      - fixed
+  release:
+    trigger: manual
+    keepBuilds: -1
+    publishArtifacts: true
+    tagOnSuccess: true
+    notifyOn:
+      - always
+    parameters:
+      - name: VERSION
+        type: string
+        description: "Release version"
+      - name: DRY_RUN
+        type: boolean
+        default: false
+  integration:
+    trigger: "H 4 * * 6"
+    keepBuilds: 10
+    publishArtifacts: true
+    notifyOn:
+      - failure
+      - fixed
+
+artifacts:
+  namingPattern: "${PROJECT}/${BUILD_TYPE}/${BUILD_NUMBER}"
+  releasePattern: "${PROJECT}/releases/${VERSION}"
+
+stages:
+  - checkout
+  - build

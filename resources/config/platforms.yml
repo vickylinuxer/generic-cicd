@@ -1,0 +1,23 @@
+# Platform adapter configuration.
+# All fields below MUST be overridden in your project's platforms.yml or cicd.yml.
+# No hardcoded URLs or credentials — configure per environment.
+
+git:
+  type: bitbucket           # Adapter type: bitbucket (more can be added)
+  url: ""                   # Set to your git server URL
+  apiUrl: ""                # Override API base URL (auto-derived from url if empty)
+  credentialId: ""          # Jenkins credential ID for git operations
+  workspace: ""             # Bitbucket workspace slug (auto-detected from remote if empty)
+
+artifacts:
+  type: artifactory         # Adapter type: artifactory (more can be added)
+  url: ""                   # Set to your artifact server URL
+  credentialId: ""          # Jenkins credential ID for artifact operations
+  defaultRepo: ""           # Default repository name for artifact uploads
+
+# Global credential IDs — used by vars/ pipeline steps when no
+# step-level credentialId is provided. Set these per environment.
+credentials:
+  git: ""                   # Default for gitOps, scmOps
+  ssh: ""                   # Default for sshOps
+  docker: ""                # Default for dockerOps push/tag
