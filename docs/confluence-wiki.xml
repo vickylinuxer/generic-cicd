@@ -1,0 +1,466 @@
+<ac:structured-macro ac:name="info">
+  <ac:rich-text-body>
+    <p>Jenkins shared library for embedded CI/CD pipelines. Supports Yocto, AOSP, and custom firmware builds with caching, Docker containers, artifact publishing, and multi-project integration.</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+
+<ac:structured-macro ac:name="toc">
+  <ac:parameter ac:name="maxLevel">3</ac:parameter>
+</ac:structured-macro>
+
+<h1>Architecture Overview</h1>
+
+<ac:structured-macro ac:name="drawio" ac:schema-version="1">
+  <ac:parameter ac:name="diagramName">generic-cicd-architecture</ac:parameter>
+</ac:structured-macro>
+
+<ac:structured-macro ac:name="note">
+  <ac:rich-text-body>
+    <p>If the draw.io macro is not available, see the Mermaid diagram in the repository README or refer to the flow description below.</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+
+<table>
+  <tbody>
+    <tr>
+      <th>Layer</th>
+      <th>Component</th>
+      <th>Description</th>
+    </tr>
+    <tr>
+      <td>Jenkins Controller</td>
+      <td>Jenkinsfile</td>
+      <td>Calls <code>pipeliner()</code> or <code>ciPipeline()</code></td>
+    </tr>
+    <tr>
+      <td>Jenkins Controller</td>
+      <td>generic-cicd (shared library)</td>
+      <td>ConfigLoader, pipeliner, scmOps, gitOps, dockerOps, artifactoryOps, PlatformFactory</td>
+    </tr>
+    <tr>
+      <td>Configuration</td>
+      <td>project-config</td>
+      <td>YAML configs per subsystem (integration.yml, yocto-bsp.yml, aosp-platform.yml, custom-firmware.yml)</td>
+    </tr>
+    <tr>
+      <td>Configuration</td>
+      <td>integration-manifest</td>
+      <td>Google repo manifest (default.xml with build.xml, projects.xml, yocto.xml, aosp.xml)</td>
+    </tr>
+    <tr>
+      <td>Build Agent</td>
+      <td>Workspace</td>
+      <td>Sources synced via <code>repo sync</code>, build-scripts, cache (sstate, downloads, ccache)</td>
+    </tr>
+    <tr>
+      <td>Build Agent</td>
+      <td>Docker Containers</td>
+      <td>yocto-builder (bitbake), aosp-builder (lunch+m), cmake-cross (cmake) — run in parallel</td>
+    </tr>
+    <tr>
+      <td>Artifacts</td>
+      <td>Artifactory</td>
+      <td>Published via <code>rtUpload</code> — *.wic.bz2, *.img, firmware.bin</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Pipeline Flow</h3>
+<ol>
+  <li><strong>Jenkinsfile</strong> calls <code>pipeliner()</code> or <code>ciPipeline()</code></li>
+  <li><strong>ConfigLoader</strong> reads YAML from <strong>project-config</strong> (4-layer merge + validation)</li>
+  <li><strong>repo sync</strong> fetches all sources from <strong>integration-manifest</strong> into workspace</li>
+  <li><strong>Parallel builds</strong> — each subsystem runs its build-script inside a Docker container</li>
+  <li><strong>Artifacts</strong> published to Artifactory via <code>rtUpload</code></li>
+</ol>
+
+<h1>How It Works</h1>
+
+<p>The library provides two entry points — both driven by YAML configuration:</p>
+
+<ul>
+  <li><strong><code>ciPipeline()</code></strong> — Single-project pipeline. Config lives in the project repo.</li>
+  <li><strong><code>pipeliner()</code></strong> — Multi-project pipeline. Config lives in a separate config repo. Syncs sources from a manifest, then builds each subsystem in parallel.</li>
+</ul>
+
+<p>All build logic lives in external shell scripts (see <strong>build-scripts</strong> repo), referenced via YAML config. No embedded bash in Groovy — the pipeline only handles orchestration, caching, and artifact management.</p>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="title">Repo Structure (4 repos)</ac:parameter>
+  <ac:parameter ac:name="language">text</ac:parameter>
+  <ac:plain-text-body><![CDATA[├── generic-cicd             shared library
+├── project-config           pipeline YAML configs per subsystem
+├── build-scripts            build shell scripts (synced via manifest)
+└── integration-manifest     repo manifest defining all sources]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h1>Component Pipeline (ciPipeline)</h1>
+
+<p>For single-project builds. The project repo has a Jenkinsfile and <code>cicd.yml</code>:</p>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="title">Project Layout</ac:parameter>
+  <ac:parameter ac:name="language">text</ac:parameter>
+  <ac:plain-text-body><![CDATA[my-project/
+├── Jenkinsfile              @Library('generic-cicd') _ ; ciPipeline()
+├── cicd.yml                 project type, stages, builder config
+├── cicd-nightly.yml         build type override (optional)
+└── platforms.yml            git/artifact adapter config (optional)]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="title">Jenkinsfile</ac:parameter>
+  <ac:parameter ac:name="language">groovy</ac:parameter>
+  <ac:plain-text-body><![CDATA[@Library('generic-cicd') _
+ciPipeline()]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="title">cicd.yml</ac:parameter>
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[project:
+  name: my-firmware
+  type: custom          # yocto | aosp | custom
+  buildType: ci          # ci | nightly | release
+
+environment:
+  agent: "linux"
+  timeout: 30
+  docker:
+    image: my-builder:latest
+
+custom:
+  buildScript: build-scripts/build.sh
+
+stages: [checkout, build, publish, notify]]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h1>Integration Pipeline (pipeliner)</h1>
+
+<p>For multi-project builds (e.g., Yocto + AOSP + custom firmware from a single manifest).</p>
+
+<h2>Jenkinsfile</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">groovy</ac:parameter>
+  <ac:plain-text-body><![CDATA[@Library('generic-cicd') _
+pipeliner(
+    config: 'integration',
+    configRepo: '<config-repo-url>',
+    credentials: 'git-creds',
+    agent: 'build-linux'
+)]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Config Repo Layout</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">text</ac:parameter>
+  <ac:plain-text-body><![CDATA[project-config/
+└── projects/
+    ├── integration.yml        manifest, workspace, mirrors, subsystem list
+    ├── custom-firmware.yml    subsystem build config
+    ├── yocto-bsp.yml          subsystem build config
+    └── aosp-platform.yml      subsystem build config]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Integration Config</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[mode: integration
+workspace: /mnt/workspace/myproject
+cleanWorkspace: true
+
+manifest:
+  url: <manifest-repo-url>
+  branch: main
+  reference: /mnt/workspace/mirrors/reference
+
+stages: [checkout, build, notify]
+failFast: true
+
+subsystems:
+  - custom-firmware
+  - yocto-bsp
+  - aosp-platform]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Component Mode with buildScripts</h2>
+
+<p>Component mode clones a single project. Use <code>buildScripts</code> to fetch build scripts separately (since there's no manifest sync):</p>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[mode: component
+
+buildScripts:
+  url: https://git.example.com/org/build-scripts.git
+  branch: main
+
+project:
+  name: yocto-sdk-app
+  repoUrl: https://git.example.com/org/yocto-sdk-app.git
+  type: custom
+  buildType: ci
+
+custom:
+  buildScript: build-scripts/component/cmake-build.sh]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<p>Relative paths are auto-resolved to absolute workspace paths.</p>
+
+<h2>Subsystem Config</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[project:
+  name: yocto-bsp
+  type: yocto
+  buildType: ci
+
+environment:
+  agent: "build-yocto"
+  timeout: 300
+  docker:
+    image: yocto-builder:latest
+    credentialId: artifactory-creds
+
+yocto:
+  buildScript: build-scripts/integration/yocto-build.sh
+
+cache:
+  - type: sstate
+    src: cache/yocto/sstate
+  - type: downloads
+    src: cache/yocto/downloads
+
+publish:
+  artifacts:
+    - pattern: "yocto/build/tmp/deploy/images/**/*.wic.bz2"
+      repo: firmware-builds
+
+stages: [checkout, build, publish, notify]]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>How pipeliner() Works</h2>
+
+<ol>
+  <li><strong>Load Config</strong> — clones the config repo, reads <code>projects/&lt;config&gt;.yml</code></li>
+  <li><strong>Validate Config</strong> — checks mode, required fields, warns on issues</li>
+  <li><strong>Clean Workspace</strong> — wipes workspace with Jenkins <code>deleteDir()</code> when <code>cleanWorkspace: true</code></li>
+  <li><strong>Disk Space Check</strong> — fails early if below <code>environment.minDiskGB</code> threshold</li>
+  <li><strong>Sync Sources</strong> (integration) or <strong>Checkout</strong> (component) — <code>repo sync</code> or git clone</li>
+  <li><strong>Parallel Builds</strong> — each subsystem builds on its own agent inside Docker container</li>
+  <li><strong>Publish</strong> — push artifacts to Artifactory via <code>rtUpload</code></li>
+  <li><strong>Notify</strong> — sets build status on the Git platform</li>
+  <li><strong>Cleanup</strong> — optionally removes intermediate build artifacts with <code>deleteDir()</code></li>
+</ol>
+
+<h2>Dry-Run Mode</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">groovy</ac:parameter>
+  <ac:plain-text-body><![CDATA[pipeliner(config: 'integration', configRepo: '...', credentials: '...', DRY_RUN: 'true')]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Workspace Cleanup</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[cleanup:
+  afterBuild: true
+  keepArtifacts: true
+  dirs:
+    - path: yocto/build/tmp/work
+      label: Yocto tmp/work
+    - path: out
+      label: AOSP out
+      fullCleanOnly: true]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h1>Configuration Reference</h1>
+
+<h2>Build Scripts</h2>
+
+<p>All build logic lives in external scripts from the <strong>build-scripts</strong> repo. Scripts receive <code>$WORKSPACE</code>, <code>$WORKSPACE_ROOT</code>, and <code>$CACHE_DIR</code> as environment variables. Additional env vars can be set via the <code>env</code> key.</p>
+
+<table>
+  <tbody>
+    <tr><th>Config Key</th><th>Use Case</th></tr>
+    <tr><td><code>custom.buildScript</code></td><td>CMake, Make, Meson, Bazel</td></tr>
+    <tr><td><code>yocto.buildScript</code></td><td>BitBake BSP/SDK builds</td></tr>
+    <tr><td><code>aosp.buildScript</code></td><td>Android builds</td></tr>
+    <tr><td><code>deploy.buildScript</code></td><td>Deployment scripts</td></tr>
+  </tbody>
+</table>
+
+<h2>Build Types</h2>
+
+<table>
+  <tbody>
+    <tr><th>Type</th><th>Trigger</th><th>Retention</th><th>Publish</th><th>Notify</th></tr>
+    <tr><td><code>ci</code></td><td>Webhook</td><td>20 builds</td><td>No</td><td>Failure only</td></tr>
+    <tr><td><code>nightly</code></td><td>Cron (2 AM)</td><td>14 builds</td><td>Yes</td><td>Failure + fixed</td></tr>
+    <tr><td><code>release</code></td><td>Manual</td><td>All</td><td>Yes</td><td>Always</td></tr>
+    <tr><td><code>integration</code></td><td>Cron (Sat 4 AM)</td><td>10 builds</td><td>Yes</td><td>Failure + fixed</td></tr>
+  </tbody>
+</table>
+
+<h2>Stages</h2>
+
+<table>
+  <tbody>
+    <tr><th>Stage</th><th>What it does</th></tr>
+    <tr><td><code>checkout</code></td><td>Git clone</td></tr>
+    <tr><td><code>build</code></td><td>Run the buildScript from YAML config</td></tr>
+    <tr><td><code>publish</code></td><td>Push artifacts to Artifactory via <code>rtUpload</code></td></tr>
+    <tr><td><code>notify</code></td><td>Set build status on Git platform</td></tr>
+    <tr><td><code>deploy</code></td><td>Run deploy.buildScript</td></tr>
+  </tbody>
+</table>
+
+<h2>Artifact Publishing (Artifactory)</h2>
+
+<p>Uses JFrog Artifactory plugin (<code>rtUpload</code>, <code>rtDownload</code>, <code>rtSetProps</code>, <code>rtPromote</code>) — no raw HTTP requests.</p>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[publish:
+  artifacts:
+    - pattern: "build/*.bin"
+      repo: firmware-builds
+
+artifacts:
+  type: artifactory
+  url: https://your-artifactory.jfrog.io
+  credentialId: artifactory-creds
+  defaultRepo: firmware-builds
+  namingPattern: "${PROJECT}/${BUILD_TYPE}/${BUILD_NUMBER}"]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Docker Registry Authentication</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[environment:
+  docker:
+    image: registry.example.com/docker-local/cmake-cross:latest
+    credentialId: artifactory-creds]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<p>Private registries are auto-detected from the image name and wrapped in <code>docker.withRegistry()</code>.</p>
+
+<h2>Platform Adapters (platforms.yml)</h2>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">yaml</ac:parameter>
+  <ac:plain-text-body><![CDATA[git:
+  type: bitbucket
+  url: https://bitbucket.org
+  workspace: <workspace-slug>
+  credentialId: git-creds
+
+artifacts:
+  type: artifactory
+  url: <artifactory-url>
+  credentialId: artifactory-creds]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h2>Environment Variable Overrides</h2>
+
+<table>
+  <tbody>
+    <tr><th>Variable</th><th>Overrides</th></tr>
+    <tr><td><code>CICD_AGENT</code></td><td><code>environment.agent</code></td></tr>
+    <tr><td><code>CICD_TIMEOUT</code></td><td><code>environment.timeout</code></td></tr>
+    <tr><td><code>CICD_DOCKER_IMAGE</code></td><td><code>environment.docker.image</code></td></tr>
+    <tr><td><code>WORKSPACE_ROOT</code></td><td>Injected automatically</td></tr>
+    <tr><td><code>CACHE_DIR</code></td><td>Injected from cache config</td></tr>
+    <tr><td><code>DRY_RUN</code></td><td>Set to <code>true</code> to validate without building</td></tr>
+  </tbody>
+</table>
+
+<h2>Full Config Field Reference</h2>
+
+<table>
+  <tbody>
+    <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+    <tr><td><code>mode</code></td><td>string</td><td>No</td><td><code>integration</code> or <code>component</code> (default: <code>component</code>)</td></tr>
+    <tr><td><code>workspace</code></td><td>string</td><td>No</td><td>Workspace root path (default: agent workspace)</td></tr>
+    <tr><td><code>cleanWorkspace</code></td><td>bool</td><td>No</td><td>Wipe workspace with <code>deleteDir()</code> before build</td></tr>
+    <tr><td><code>failFast</code></td><td>bool</td><td>No</td><td>Stop all subsystems on first failure</td></tr>
+    <tr><td><code>project.name</code></td><td>string</td><td>Yes</td><td>Project/subsystem name</td></tr>
+    <tr><td><code>project.type</code></td><td>string</td><td>Yes</td><td><code>yocto</code>, <code>aosp</code>, or <code>custom</code></td></tr>
+    <tr><td><code>project.repoUrl</code></td><td>string</td><td>Component</td><td>Git URL for component mode</td></tr>
+    <tr><td><code>project.buildType</code></td><td>string</td><td>No</td><td><code>ci</code>, <code>nightly</code>, <code>release</code> (default: <code>ci</code>)</td></tr>
+    <tr><td><code>buildScripts.url</code></td><td>string</td><td>No</td><td>Build scripts repo URL (component mode)</td></tr>
+    <tr><td><code>buildScripts.branch</code></td><td>string</td><td>No</td><td>Branch to clone (default: <code>main</code>)</td></tr>
+    <tr><td><code>manifest.url</code></td><td>string</td><td>Integration</td><td>Repo manifest URL</td></tr>
+    <tr><td><code>manifest.branch</code></td><td>string</td><td>No</td><td>Manifest branch (default: <code>main</code>)</td></tr>
+    <tr><td><code>manifest.reference</code></td><td>string</td><td>No</td><td>Local mirror path for <code>repo init --reference</code></td></tr>
+    <tr><td><code>subsystems</code></td><td>list</td><td>Integration</td><td>Subsystem names to build in parallel</td></tr>
+    <tr><td><code>environment.agent</code></td><td>string</td><td>No</td><td>Jenkins agent label</td></tr>
+    <tr><td><code>environment.timeout</code></td><td>int</td><td>No</td><td>Build timeout in minutes</td></tr>
+    <tr><td><code>environment.minDiskGB</code></td><td>int</td><td>No</td><td>Minimum disk space in GB (default: 10)</td></tr>
+    <tr><td><code>environment.docker.image</code></td><td>string</td><td>No</td><td>Docker image for build container</td></tr>
+    <tr><td><code>environment.docker.credentialId</code></td><td>string</td><td>No</td><td>Docker registry credential</td></tr>
+    <tr><td><code>environment.docker.args</code></td><td>string</td><td>No</td><td>Extra docker run args</td></tr>
+    <tr><td><code>stages</code></td><td>list</td><td>No</td><td>Ordered stage list (default: <code>[build]</code>)</td></tr>
+    <tr><td><code>cache</code></td><td>list</td><td>No</td><td>Cache entries (<code>sstate</code>, <code>downloads</code>, <code>ccache</code>). Paths relative to workspace.</td></tr>
+    <tr><td><code>cleanup.afterBuild</code></td><td>bool</td><td>No</td><td>Clean intermediates on success</td></tr>
+    <tr><td><code>cleanup.dirs</code></td><td>list</td><td>No</td><td>Directories to clean (<code>path</code>, <code>label</code>, <code>fullCleanOnly</code>)</td></tr>
+    <tr><td><code>publish.artifacts</code></td><td>list</td><td>No</td><td>Artifact patterns and target repos</td></tr>
+    <tr><td><code>metrics.export</code></td><td>bool</td><td>No</td><td>POST metrics to endpoint</td></tr>
+  </tbody>
+</table>
+
+<h1>Jenkins Setup</h1>
+
+<h2>Required Plugins</h2>
+
+<p>Pipeline, Git, Pipeline Utility Steps, Docker Pipeline, Repo, Credentials Binding, HTTP Request, JFrog Artifactory</p>
+
+<h2>Setup Steps</h2>
+
+<ol>
+  <li>Add shared library in <strong>Manage Jenkins &gt; System &gt; Global Pipeline Libraries</strong> pointing to the generic-cicd repo</li>
+  <li>Create a Jenkinsfile with <code>ciPipeline()</code> or <code>pipeliner()</code></li>
+  <li>Add YAML config to your project (or config repo for integration mode)</li>
+</ol>
+
+<h1>Project Structure</h1>
+
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">text</ac:parameter>
+  <ac:plain-text-body><![CDATA[generic-cicd/
+├── vars/                         # Pipeline entry points & utility steps
+│   ├── pipeliner.groovy          #   unified pipeline engine
+│   ├── ciPipeline.groovy         #   single-project pipeline (wrapper)
+│   ├── scmOps.groovy             #   source control (repo manifest sync)
+│   ├── gitOps.groovy             #   git operations
+│   ├── dockerOps.groovy          #   docker build/push/tag
+│   └── artifactoryOps.groovy     #   rtDownload, rtSetProps, rtPromote
+├── src/com/tcs/cicd/
+│   ├── ConfigLoader.groovy       #   4-layer config merge + validation
+│   ├── PlatformFactory.groovy    #   git/artifact adapter factory
+│   ├── Utils.groovy              #   shell escape, disk check, retry
+│   └── adapters/
+│       ├── git/                  #   GitAdapter, BitbucketAdapter
+│       └── artifacts/            #   ArtifactAdapter, ArtifactoryAdapter (rtUpload)
+├── resources/config/             # Library defaults
+└── docker/                       # Builder Dockerfiles]]></ac:plain-text-body>
+</ac:structured-macro>
+
+<h1>Related Repos</h1>
+
+<ul>
+  <li><strong>project-config</strong> — YAML pipeline configs per subsystem</li>
+  <li><strong>build-scripts</strong> — Build shell scripts (Yocto, AOSP, CMake)</li>
+</ul>
+
+<ac:structured-macro ac:name="info">
+  <ac:rich-text-body>
+    <p><strong>License:</strong> Internal Use</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
