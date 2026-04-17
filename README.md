@@ -4,62 +4,7 @@ Jenkins shared library for embedded CI/CD pipelines. Supports Yocto, AOSP, and c
 
 ## Architecture Overview
 
-```mermaid
-flowchart TD
-    subgraph Jenkins["Jenkins Controller"]
-        JF["Jenkinsfile<br/>pipeliner() / ciPipeline()"]
-        subgraph SL["generic-cicd (shared library)"]
-            CL["ConfigLoader<br/>4-layer merge + validation"]
-            PL["pipeliner.groovy"]
-            SO["scmOps"]
-            GO["gitOps"]
-            DO["dockerOps"]
-            AO["artifactoryOps<br/>rtUpload / rtDownload"]
-            PF["PlatformFactory<br/>BitbucketAdapter<br/>ArtifactoryAdapter"]
-        end
-    end
-
-    subgraph Repos["Configuration Repos"]
-        PC["project-config<br/>──────────────<br/>integration.yml<br/>yocto-bsp.yml<br/>aosp-platform.yml<br/>custom-firmware.yml"]
-        IM["integration-manifest<br/>──────────────<br/>default.xml<br/>├ build.xml<br/>├ projects.xml<br/>├ yocto.xml<br/>└ aosp.xml"]
-    end
-
-    subgraph Agent["Build Agent"]
-        subgraph WS["Workspace (repo sync)"]
-            BS["build-scripts/<br/>├ yocto-build.sh<br/>├ aosp-build.sh<br/>└ custom-build.sh"]
-            SRC["Sources<br/>├ yocto/poky<br/>├ yocto/meta-rpi<br/>├ subsystems/*<br/>└ aosp/"]
-            CACHE["Cache<br/>├ sstate<br/>├ downloads<br/>└ ccache"]
-        end
-        subgraph Docker["Docker Containers (parallel)"]
-            YB["yocto-builder<br/>bitbake"]
-            AB["aosp-builder<br/>lunch + m"]
-            CB["cmake-cross<br/>cmake"]
-        end
-    end
-
-    ART["Artifactory<br/>rtUpload<br/>──────────────<br/>*.wic.bz2 · *.img<br/>firmware.bin"]
-
-    JF --> PL
-    PL --> CL
-    CL --> PC
-    PL --> SO
-    SO --> IM
-    IM -->|repo sync| WS
-    BS --> YB
-    BS --> AB
-    BS --> CB
-    YB --> AO
-    AB --> AO
-    CB --> AO
-    AO --> ART
-
-    style Jenkins fill:#e1f5fe,stroke:#0288d1
-    style SL fill:#fff3e0,stroke:#f57c00
-    style Repos fill:#f3e5f5,stroke:#7b1fa2
-    style Agent fill:#e8f5e9,stroke:#388e3c
-    style Docker fill:#fce4ec,stroke:#c62828
-    style ART fill:#fff9c4,stroke:#f9a825
-```
+![Architecture Overview](docs/architecture.svg)
 
 ## How It Works
 
