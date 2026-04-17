@@ -105,7 +105,7 @@
     <tr>
       <td>Build Agent</td>
       <td>Workspace</td>
-      <td>Sources synced via <code>repo sync</code>, build-scripts, cache (sstate, downloads, ccache)</td>
+      <td>Sources synced via <code>repo sync</code>, build-scripts</td>
     </tr>
     <tr>
       <td>Build Agent</td>
@@ -213,7 +213,7 @@ pipeliner(
   <ac:parameter ac:name="language">text</ac:parameter>
   <ac:plain-text-body><![CDATA[project-config/
 └── projects/
-    ├── integration.yml        manifest, workspace, mirrors, subsystem list
+    ├── integration.yml        manifest, workspace, subsystem list
     ├── custom-firmware.yml    subsystem build config
     ├── yocto-bsp.yml          subsystem build config
     └── aosp-platform.yml      subsystem build config]]></ac:plain-text-body>
@@ -284,12 +284,6 @@ environment:
 yocto:
   buildScript: build-scripts/integration/yocto-build.sh
 
-cache:
-  - type: sstate
-    src: cache/yocto/sstate
-  - type: downloads
-    src: cache/yocto/downloads
-
 publish:
   artifacts:
     - pattern: "yocto/build/tmp/deploy/images/**/*.wic.bz2"
@@ -338,7 +332,7 @@ stages: [checkout, build, publish, notify]]]></ac:plain-text-body>
 
 <h2>Build Scripts</h2>
 
-<p>All build logic lives in external scripts from the <strong>build-scripts</strong> repo. Scripts receive <code>$WORKSPACE</code>, <code>$WORKSPACE_ROOT</code>, and <code>$CACHE_DIR</code> as environment variables. Additional env vars can be set via the <code>env</code> key.</p>
+<p>All build logic lives in external scripts from the <strong>build-scripts</strong> repo. Scripts receive <code>$WORKSPACE</code> and <code>$WORKSPACE_ROOT</code> as environment variables. Cache management (<code>CACHE_DIR</code>, <code>DL_DIR</code>, <code>SSTATE_DIR</code>, <code>ccache</code>) is handled by the build scripts themselves. Additional env vars can be set via the <code>env</code> key.</p>
 
 <table>
   <tbody>
@@ -431,7 +425,6 @@ artifacts:
     <tr><td><code>CICD_TIMEOUT</code></td><td><code>environment.timeout</code></td></tr>
     <tr><td><code>CICD_DOCKER_IMAGE</code></td><td><code>environment.docker.image</code></td></tr>
     <tr><td><code>WORKSPACE_ROOT</code></td><td>Injected automatically</td></tr>
-    <tr><td><code>CACHE_DIR</code></td><td>Injected from cache config</td></tr>
     <tr><td><code>DRY_RUN</code></td><td>Set to <code>true</code> to validate without building</td></tr>
   </tbody>
 </table>
@@ -462,7 +455,6 @@ artifacts:
     <tr><td><code>environment.docker.credentialId</code></td><td>string</td><td>No</td><td>Docker registry credential</td></tr>
     <tr><td><code>environment.docker.args</code></td><td>string</td><td>No</td><td>Extra docker run args</td></tr>
     <tr><td><code>stages</code></td><td>list</td><td>No</td><td>Ordered stage list (default: <code>[build]</code>)</td></tr>
-    <tr><td><code>cache</code></td><td>list</td><td>No</td><td>Cache entries (<code>sstate</code>, <code>downloads</code>, <code>ccache</code>). Paths relative to workspace.</td></tr>
     <tr><td><code>cleanup.afterBuild</code></td><td>bool</td><td>No</td><td>Clean intermediates on success</td></tr>
     <tr><td><code>cleanup.dirs</code></td><td>list</td><td>No</td><td>Directories to clean (<code>path</code>, <code>label</code>, <code>fullCleanOnly</code>)</td></tr>
     <tr><td><code>publish.artifacts</code></td><td>list</td><td>No</td><td>Artifact patterns and target repos</td></tr>

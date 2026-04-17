@@ -315,12 +315,7 @@ private void runIntegration(Map pipelineConfig, String configDir, String credent
     def subsystems = pipelineConfig.subsystems ?: []
     def workspace = pipelineConfig.workspace ?: "/var/jenkins/workspace/integration"
 
-    // Mirror config — derive manifest reference from mirrors if not set explicitly
-    def mirrors = pipelineConfig.mirrors ?: [:]
     def manifestReference = pipelineConfig.manifest?.reference ?: ''
-    if (!manifestReference && mirrors.reference) {
-        manifestReference = resolveRelativePath(mirrors.reference, workspace)
-    }
 
     def cleanWs = pipelineConfig.cleanWorkspace ?: false
     def minDiskGB = pipelineConfig.environment?.minDiskGB ?: 10
@@ -533,22 +528,6 @@ private void resolveConfigPaths(Map config, String workspace) {
     def builderType = config.project?.type ?: 'custom'
     if (config[builderType]?.buildScript) {
         config[builderType].buildScript = resolveRelativePath(config[builderType].buildScript, workspace)
-    }
-
-    // Resolve cache source paths
-    (config.cache ?: []).each { entry ->
-        if (entry.src) {
-            entry.src = resolveRelativePath(entry.src, workspace)
-        }
-    }
-
-    // Resolve all mirror paths
-    if (config.mirrors instanceof Map) {
-        config.mirrors.each { key, value ->
-            if (value instanceof String) {
-                config.mirrors[key] = resolveRelativePath(value, workspace)
-            }
-        }
     }
 
     // Resolve cleanup paths

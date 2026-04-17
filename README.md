@@ -136,7 +136,7 @@ pipeliner(
 ```
 project-config/
 └── projects/
-    ├── integration.yml        manifest, workspace, mirrors, subsystem list
+    ├── integration.yml        manifest, workspace, subsystem list
     ├── custom-firmware.yml    subsystem build config
     ├── yocto-bsp.yml          subsystem build config
     └── aosp-platform.yml      subsystem build config
@@ -204,12 +204,6 @@ environment:
 yocto:
   buildScript: build-scripts/integration/yocto-build.sh
 
-cache:
-  - type: sstate
-    src: cache/yocto/sstate
-  - type: downloads
-    src: cache/yocto/downloads
-
 publish:
   artifacts:
     - pattern: "yocto/build/tmp/deploy/images/**/*.wic.bz2"
@@ -254,7 +248,7 @@ cleanup:
 
 ### Build Scripts
 
-All build logic lives in external scripts from the **build-scripts** repo. Scripts receive `$WORKSPACE`, `$WORKSPACE_ROOT`, and `$CACHE_DIR` as environment variables. Additional env vars can be set via the `env` key.
+All build logic lives in external scripts from the **build-scripts** repo. Scripts receive `$WORKSPACE` and `$WORKSPACE_ROOT` as environment variables. Cache management (`CACHE_DIR`, `DL_DIR`, `SSTATE_DIR`, `ccache`) is handled by the build scripts themselves. Additional env vars can be set via the `env` key.
 
 | Config Key | Use Case |
 |-----------|----------|
@@ -334,7 +328,6 @@ artifacts:
 | `CICD_TIMEOUT` | `environment.timeout` |
 | `CICD_DOCKER_IMAGE` | `environment.docker.image` |
 | `WORKSPACE_ROOT` | Injected automatically |
-| `CACHE_DIR` | Injected from cache config |
 | `DRY_RUN` | Set to `true` to validate without building |
 
 ### Full Config Field Reference
@@ -362,7 +355,6 @@ artifacts:
 | `environment.docker.credentialId` | string | No | Docker registry credential |
 | `environment.docker.args` | string | No | Extra docker run args |
 | `stages` | list | No | Ordered stage list (default: `[build]`) |
-| `cache` | list | No | Cache entries (`sstate`, `downloads`, `ccache`). Paths relative to workspace. |
 | `cleanup.afterBuild` | bool | No | Clean intermediates on success |
 | `cleanup.dirs` | list | No | Directories to clean (`path`, `label`, `fullCleanOnly`) |
 | `publish.artifacts` | list | No | Artifact patterns and target repos |
